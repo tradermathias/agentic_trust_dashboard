@@ -1,1 +1,1 @@
-web: gunicorn agentic_trust_dashboard:app
+web: gunicorn wsgi:server --bind 0.0.0.0:$PORT
