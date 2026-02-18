@@ -5,5 +5,6 @@ This allows Render to find the app object easily.
 
 from agentic_trust_dashboard import app
 
-if __name__ == "__main__":
-    app.run(debug=False)
+# Export app as the WSGI application object
+# This is what gunicorn looks for when you specify wsgi:app
+__all__ = ['app']
