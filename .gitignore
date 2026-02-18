@@ -1,0 +1,7 @@
+# Environment variables 
+.env 
+.env.local 
+__pycache__/ 
+*.py[cod] 
+.vscode/ 
+.idea/ 
