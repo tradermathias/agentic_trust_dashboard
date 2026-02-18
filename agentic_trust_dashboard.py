@@ -21,6 +21,8 @@ from io import StringIO
 
 import pandas as pd
 import yfinance as yf
+from alpha_vantage.timeseries import TimeSeries
+import time
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -66,6 +68,10 @@ def load_api_key():
         return ""
 
 ANTHROPIC_API_KEY = load_api_key()
+
+# Alpha Vantage Configuration
+ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "PX1ZAA237ABPZ7YB")
+ts = TimeSeries(key=ALPHA_VANTAGE_API_KEY, output_format='pandas')
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TRUST LAYER UNIVERSE  — 8 tiers from the Agentic Economy Master Dashboard
@@ -195,28 +201,47 @@ def get_all_tickers():
     return list(tickers)
 
 def fetch_price_data(period="1y"):
-    """Fetch historical price data for all tickers."""
+    """Fetch historical price data for all tickers using Alpha Vantage."""
     all_tickers = get_all_tickers()
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching {len(all_tickers)} tickers...")
-    end = datetime.today()
-    period_map = {"3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "3y": 1095, "5y": 1825}
-    days = period_map.get(period, 365)
-    start = end - timedelta(days=days)
-    try:
-        raw = yf.download(
-            tickers=all_tickers,
-            start=start.strftime("%Y-%m-%d"),
-            end=end.strftime("%Y-%m-%d"),
-            auto_adjust=True,
-            progress=False,
-            threads=True,
-        )
-        prices = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching {len(all_tickers)} tickers from Alpha Vantage...")
+    
+    prices = pd.DataFrame()
+    failed = []
+    
+    for ticker in all_tickers:
+        try:
+            print(f"  Fetching {ticker}...", end=" ")
+            data, meta = ts.get_daily(symbol=ticker, outputsize='full')
+            
+            if data is not None and len(data) > 0:
+                # Alpha Vantage returns data with 'close' column
+                data = data.rename(columns={'close': 'Close', '4. close': 'Close'})
+                data = data[['Close']].rename(columns={'Close': ticker})
+                
+                if prices.empty:
+                    prices = data
+                else:
+                    prices = prices.join(data, how='outer')
+                print("✓")
+            else:
+                print("✗ (no data)")
+                failed.append(ticker)
+        except Exception as e:
+            print(f"✗ ({str(e)[:40]})")
+            failed.append(ticker)
+        
+        # Rate limiting: Alpha Vantage free tier = 5 requests/min
+        time.sleep(0.25)
+    
+    if len(failed) > 0:
+        print(f"Failed to fetch: {failed}")
+    
+    if len(prices) > 0:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Fetched: {prices.shape[1]} tickers, {len(prices)} days")
-        return prices
-    except Exception as e:
-        print(f"Error fetching data: {e}")
-        return pd.DataFrame()
+    else:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] No data fetched")
+    
+    return prices
 
 def compute_normalized_returns(prices):
     return (prices / prices.iloc[0]) * 100
@@ -707,7 +732,9 @@ app.layout = html.Div(style=STYLE["page"], children=[
         html.Div(id="tab-content"),
         dcc.Loading(
             id="ai-loading",
-            children=[],
+            target_components={"tab-content": "children"},
+            overlay_style={"visibility": "visible", "opacity": 0.4,
+                           "backgroundColor": "#07091A"},
             color="#7C3AED",
             type="circle",
         ),
